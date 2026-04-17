@@ -14,7 +14,7 @@ app.use(express.json({ limit: '1mb' })); // prevent abuse
 
 // Routes
 const chatRoute = require('./routes/chat');
-app.use('/api/chat', chatRoute);
+app.use('/chat', chatRoute);   // ✅ changed from /api/chat to /chat
 
 // Health check route (important for debugging + deployment)
 app.get('/', (req, res) => {
