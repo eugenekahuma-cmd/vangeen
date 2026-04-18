@@ -3,3 +3,4 @@ nodes_modules
 client/.env
 *.log
 client\firebase-debug.log
+node_modules/

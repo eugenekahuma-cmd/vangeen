@@ -1,5 +1,4 @@
 function calculateNPV(cashFlows, rate) {
-  // cashFlows MUST include initial investment as first value (negative)
   return cashFlows.reduce((npv, cf, t) => {
     return npv + cf / Math.pow(1 + rate, t);
   }, 0);
@@ -19,17 +18,13 @@ function calculateIRR(cashFlows, guess = 0.1) {
       derivative -= (t * cashFlows[t]) / (denom * (1 + rate));
     }
 
-    // prevent division by zero
     if (Math.abs(derivative) < 1e-10) return null;
 
     const newRate = rate - npv / derivative;
 
-    // prevent explosion
     if (!isFinite(newRate)) return null;
 
-    if (Math.abs(newRate - rate) < 1e-7) {
-      return newRate;
-    }
+    if (Math.abs(newRate - rate) < 1e-7) return newRate;
 
     rate = newRate;
   }
@@ -42,10 +37,7 @@ function calculatePaybackPeriod(cashFlows) {
 
   for (let i = 0; i < cashFlows.length; i++) {
     cumulative += cashFlows[i];
-
-    if (cumulative >= 0) {
-      return i; // years to recover
-    }
+    if (cumulative >= 0) return i;
   }
 
   return null;

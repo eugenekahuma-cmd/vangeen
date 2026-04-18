@@ -1,11 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const connectDB = require('./config/db'); // 🔥 ADD THIS
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// 🔥 CONNECT TO MONGODB
+connectDB();
 
 // 🔥 STRONGER CORS
 app.use(cors({
