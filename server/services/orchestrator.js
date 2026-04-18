@@ -1,21 +1,39 @@
 const { classifyIntent } = require('./classifier');
+
 const {
   calculateNPV,
   calculateIRR,
   calculatePaybackPeriod
 } = require('./financeEngine');
+
 const {
   analyzeMacroIndicators,
   analyzeMicroMarket
 } = require('./economicsEngine');
+
 const { callAI } = require('./aiService');
+
+// ✅ SAFE OPTIONAL IMPORT (fixes your crash)
+let enhanceQuery = null;
+try {
+  enhanceQuery = require('./enhancer')?.enhanceQuery;
+} catch (e) {
+  enhanceQuery = null;
+}
 
 function extractNumbers(message) {
   return message.match(/-?\d+(\.\d+)?/g)?.map(Number) || [];
 }
 
 async function orchestrate(message) {
-  const { intent } = await classifyIntent(message);
+  let intent;
+
+  try {
+    const result = await classifyIntent(message);
+    intent = result?.intent || "general";
+  } catch (e) {
+    intent = "general";
+  }
 
   // ---------------- FINANCE ----------------
   if (intent === "finance") {
@@ -32,11 +50,20 @@ async function orchestrate(message) {
     const rate = numbers[numbers.length - 1] / 100;
     const cashFlows = numbers.slice(1, -1);
 
-    const enhanced = await enhanceQuery(message);
+    // ✅ SAFE FALLBACK (NO CRASH IF enhancer missing)
+    let enhanced = { expanded: false, tasks: [] };
+
+    if (enhanceQuery) {
+      try {
+        enhanced = await enhanceQuery(message);
+      } catch (e) {
+        enhanced = { expanded: false, tasks: [] };
+      }
+    }
 
     let results = [];
 
-    if (enhanced.expanded && enhanced.tasks.length > 0) {
+    if (enhanced?.expanded && enhanced?.tasks?.length > 0) {
       for (const task of enhanced.tasks) {
         if (task.type === "npv") {
           results.push({
