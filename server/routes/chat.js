@@ -3,15 +3,16 @@ const router = express.Router();
 
 const { orchestrate } = require('../services/orchestrator');
 const { callAI } = require('../services/aiService');
+const { getHistory, saveMessage } = require('../services/memory');
 
-// ✅ OPTIONAL: only if you want AI explanations to use memory
-const { getHistory } = require('../services/memory');
+// ---------------- AUTH MIDDLEWARE ----------------
+const authMiddleware = require('../middleware/authMiddleware');
 
-router.post('/', async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   const { message } = req.body;
 
-  // 🔥 CRITICAL: attach user identity (replace with real auth later)
-  const userId = req.user?.id || "demo-user";
+  // 🔥 REAL USER FROM JWT
+  const userId = req.user.id;
 
   if (!message || typeof message !== 'string') {
     return res.status(400).json({
@@ -20,14 +21,19 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const result = await orchestrate(message, userId);
+    // ---------------- SAVE USER MESSAGE (MEMORY WRITE) ----------------
+    await saveMessage(userId, 'user', message);
+
+    // ---------------- ORCHESTRATE INTENT ----------------
+    const result = await orchestrate(message);
+
+    let reply;
 
     // ---------------- FINANCE OUTPUT ----------------
     if (result.type === "finance_result") {
       const d = result.data;
 
-      // ✅ pull memory for better explanation continuity
-      const history = getHistory(userId);
+      const history = await getHistory(userId);
 
       const explanation = await callAI(
         `
@@ -45,8 +51,7 @@ ${JSON.stringify(d, null, 2)}
         history
       );
 
-      return res.json({
-        reply: `
+      reply = `
 📊 FINANCIAL ANALYSIS
 
 ━━━━━━━━━━━━━━━━━━
@@ -61,35 +66,33 @@ Cash Flows: ${d.cashFlows.join(', ')}
 RESULTS
 ━━━━━━━━━━━━━━━━━━
 ${d.results.map(r => {
-  if (r.type === "irr" && r.value !== null) {
-    return `IRR: ${(r.value * 100).toFixed(2)}%`;
-  }
-  if (r.type === "npv") {
-    return `NPV: ${r.value.toFixed(2)}`;
-  }
-  if (r.type === "payback") {
-    return `Payback: ${r.value !== null ? r.value + ' years' : 'Not recovered'}`;
-  }
-  return `${r.type}: ${r.value}`;
-}).join('\n')}
+        if (r.type === "npv") return `NPV: ${Number(r.value).toFixed(2)}`;
+        if (r.type === "irr" && r.value !== null) return `IRR: ${(r.value * 100).toFixed(2)}%`;
+        if (r.type === "payback") return `Payback: ${r.value !== null ? r.value + ' years' : 'Not recovered'}`;
+        return `${r.type}: ${r.value}`;
+      }).join('\n')}
 
 ━━━━━━━━━━━━━━━━━━
 INSIGHT
 ━━━━━━━━━━━━━━━━━━
 ${explanation}
-        `
-      });
+      `;
     }
 
     // ---------------- ERROR ----------------
-    if (result.type === "error") {
-      return res.json({ reply: result.data });
+    else if (result.type === "error") {
+      reply = result.data;
     }
 
     // ---------------- DEFAULT ----------------
-    return res.json({
-      reply: result.data
-    });
+    else {
+      reply = result.data;
+    }
+
+    // ---------------- SAVE ASSISTANT RESPONSE (MEMORY WRITE) ----------------
+    await saveMessage(userId, 'assistant', reply);
+
+    return res.json({ reply });
 
   } catch (err) {
     console.error("Chat Route Error:", err);

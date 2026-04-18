@@ -1,54 +1,59 @@
-// Simple in-memory store (can upgrade to Redis later)
+const Memory = require('../models/Memory');
 
-const memoryStore = new Map();
+/**
+ * GET USER MEMORY (safe + bounded)
+ */
+async function getHistory(userId = 'anonymous', limit = 10) {
+  try {
+    const doc = await Memory.findOne({ userId });
 
-/*
-Structure:
-{
-  userId: {
-    history: [],
-    context: {}
+    if (!doc || !doc.messages) return [];
+
+    // return only last N messages
+    return doc.messages.slice(-limit);
+
+  } catch (err) {
+    console.error("Memory Read Error:", err);
+    return [];
   }
 }
-*/
 
-function getUserMemory(userId) {
-  if (!memoryStore.has(userId)) {
-    memoryStore.set(userId, {
-      history: [],
-      context: {}
+/**
+ * SAVE MESSAGE (safe + idempotent)
+ */
+async function saveMessage(userId, role, content) {
+  try {
+    if (!content) return;
+
+    let doc = await Memory.findOne({ userId });
+
+    if (!doc) {
+      doc = new Memory({
+        userId,
+        messages: []
+      });
+    }
+
+    doc.messages.push({
+      role,
+      content
     });
+
+    // 🔥 HARD LIMIT (prevents database bloat)
+    if (doc.messages.length > 50) {
+      doc.messages = doc.messages.slice(-50);
+    }
+
+    await doc.save();
+    return true;
+
+  } catch (err) {
+    console.error("Memory Write Error:", err);
+    return false;
   }
-  return memoryStore.get(userId);
-}
-
-function addToHistory(userId, role, content) {
-  const userMemory = getUserMemory(userId);
-
-  userMemory.history.push({ role, content });
-
-  // keep last 10 messages only (prevent token bloat)
-  if (userMemory.history.length > 10) {
-    userMemory.history.shift();
-  }
-}
-
-function getHistory(userId) {
-  return getUserMemory(userId).history;
-}
-
-function saveContext(userId, key, value) {
-  const userMemory = getUserMemory(userId);
-  userMemory.context[key] = value;
-}
-
-function getContext(userId) {
-  return getUserMemory(userId).context;
 }
 
 module.exports = {
-  addToHistory,
   getHistory,
-  saveContext,
-  getContext
+  saveMessage
 };

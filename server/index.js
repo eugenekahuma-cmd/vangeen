@@ -13,8 +13,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ---------------- ROUTES ----------------
+app.use('/auth', require('./routes/auth'));
 app.use('/chat', require('./routes/chat'));
 
+// ---------------- HEALTH CHECK ----------------
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
