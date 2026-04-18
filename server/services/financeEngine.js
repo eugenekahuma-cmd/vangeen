@@ -1,12 +1,16 @@
-function calculateNPV(cashFlows, rate) {
-  return cashFlows.reduce((acc, cf, t) => {
-    return acc + cf / Math.pow(1 + rate, t);
-  }, 0);
+function calculateNPV(initial, cashFlows, rate) {
+  let npv = -initial;
+
+  for (let t = 0; t < cashFlows.length; t++) {
+    npv += cashFlows[t] / Math.pow(1 + rate, t + 1);
+  }
+
+  return npv;
 }
 
-// Stable IRR (Newton-Raphson with safety guards)
-function calculateIRR(cashFlows, guess = 0.1) {
-  let rate = guess;
+// 🔥 SAFE IRR (fixes explosion problem)
+function calculateIRR(cashFlows) {
+  let rate = 0.1;
 
   for (let i = 0; i < 100; i++) {
     let npv = 0;
@@ -22,13 +26,13 @@ function calculateIRR(cashFlows, guess = 0.1) {
       }
     }
 
-    if (Math.abs(derivative) < 1e-10) break;
+    if (Math.abs(derivative) < 1e-10) return null;
 
     const newRate = rate - npv / derivative;
 
-    if (!isFinite(newRate)) break;
+    if (!isFinite(newRate)) return rate;
 
-    if (Math.abs(newRate - rate) < 1e-7) return newRate;
+    if (Math.abs(newRate - rate) < 1e-6) return newRate;
 
     rate = newRate;
   }
@@ -36,20 +40,25 @@ function calculateIRR(cashFlows, guess = 0.1) {
   return rate;
 }
 
-function calculatePaybackPeriod(cashFlows) {
-  let cumulative = 0;
+// 🔥 FIXED PAYBACK (correct logic)
+function calculatePaybackPeriod(cashFlows, initial = 0) {
+  let cumulative = -initial;
 
   for (let i = 0; i < cashFlows.length; i++) {
     cumulative += cashFlows[i];
 
-    if (cumulative >= 0) return i + 1;
+    if (cumulative >= 0) {
+      return i + 1;
+    }
   }
 
   return null;
 }
 
 function calculateDCF(cashFlows, rate) {
-  return calculateNPV(cashFlows, rate);
+  return cashFlows.reduce((acc, cf, t) => {
+    return acc + cf / Math.pow(1 + rate, t + 1);
+  }, 0);
 }
 
 module.exports = {
