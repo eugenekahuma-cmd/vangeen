@@ -1,18 +1,14 @@
-function calculateNPV(initial, cashFlows, rate) {
-  let npv = -initial;
-
-  for (let t = 0; t < cashFlows.length; t++) {
-    npv += cashFlows[t] / Math.pow(1 + rate, t + 1);
-  }
-
-  return npv;
+function calculateNPV(cashFlows, rate) {
+  // cashFlows MUST include initial investment as first value (negative)
+  return cashFlows.reduce((npv, cf, t) => {
+    return npv + cf / Math.pow(1 + rate, t);
+  }, 0);
 }
 
-// 🔥 SAFE IRR (fixes explosion problem)
-function calculateIRR(cashFlows) {
-  let rate = 0.1;
+function calculateIRR(cashFlows, guess = 0.1) {
+  let rate = guess;
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 1000; i++) {
     let npv = 0;
     let derivative = 0;
 
@@ -20,35 +16,35 @@ function calculateIRR(cashFlows) {
       const denom = Math.pow(1 + rate, t);
 
       npv += cashFlows[t] / denom;
-
-      if (rate !== -1) {
-        derivative += (-t * cashFlows[t]) / (denom * (1 + rate));
-      }
+      derivative -= (t * cashFlows[t]) / (denom * (1 + rate));
     }
 
+    // prevent division by zero
     if (Math.abs(derivative) < 1e-10) return null;
 
     const newRate = rate - npv / derivative;
 
-    if (!isFinite(newRate)) return rate;
+    // prevent explosion
+    if (!isFinite(newRate)) return null;
 
-    if (Math.abs(newRate - rate) < 1e-6) return newRate;
+    if (Math.abs(newRate - rate) < 1e-7) {
+      return newRate;
+    }
 
     rate = newRate;
   }
 
-  return rate;
+  return null;
 }
 
-// 🔥 FIXED PAYBACK (correct logic)
-function calculatePaybackPeriod(cashFlows, initial = 0) {
-  let cumulative = -initial;
+function calculatePaybackPeriod(cashFlows) {
+  let cumulative = 0;
 
   for (let i = 0; i < cashFlows.length; i++) {
     cumulative += cashFlows[i];
 
     if (cumulative >= 0) {
-      return i + 1;
+      return i; // years to recover
     }
   }
 
@@ -56,9 +52,7 @@ function calculatePaybackPeriod(cashFlows, initial = 0) {
 }
 
 function calculateDCF(cashFlows, rate) {
-  return cashFlows.reduce((acc, cf, t) => {
-    return acc + cf / Math.pow(1 + rate, t + 1);
-  }, 0);
+  return calculateNPV(cashFlows, rate);
 }
 
 module.exports = {

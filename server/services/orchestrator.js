@@ -1,39 +1,21 @@
 const { classifyIntent } = require('./classifier');
-
 const {
   calculateNPV,
   calculateIRR,
   calculatePaybackPeriod
 } = require('./financeEngine');
-
 const {
   analyzeMacroIndicators,
   analyzeMicroMarket
 } = require('./economicsEngine');
-
 const { callAI } = require('./aiService');
-
-// ✅ SAFE OPTIONAL IMPORT (fixes your crash)
-let enhanceQuery = null;
-try {
-  enhanceQuery = require('./enhancer')?.enhanceQuery;
-} catch (e) {
-  enhanceQuery = null;
-}
 
 function extractNumbers(message) {
   return message.match(/-?\d+(\.\d+)?/g)?.map(Number) || [];
 }
 
 async function orchestrate(message) {
-  let intent;
-
-  try {
-    const result = await classifyIntent(message);
-    intent = result?.intent || "general";
-  } catch (e) {
-    intent = "general";
-  }
+  const { intent } = await classifyIntent(message);
 
   // ---------------- FINANCE ----------------
   if (intent === "finance") {
@@ -50,40 +32,25 @@ async function orchestrate(message) {
     const rate = numbers[numbers.length - 1] / 100;
     const cashFlows = numbers.slice(1, -1);
 
-    // ✅ SAFE FALLBACK (NO CRASH IF enhancer missing)
-    let enhanced = { expanded: false, tasks: [] };
+    // 🔥 CRITICAL FIX — include initial investment
+    const fullCashFlows = [-initial, ...cashFlows];
 
-    if (enhanceQuery) {
-      try {
-        enhanced = await enhanceQuery(message);
-      } catch (e) {
-        enhanced = { expanded: false, tasks: [] };
-      }
-    }
-
-    let results = [];
-
-    if (enhanced?.expanded && enhanced?.tasks?.length > 0) {
-      for (const task of enhanced.tasks) {
-        if (task.type === "npv") {
-          results.push({
-            type: "npv",
-            rate: task.rate,
-            value: calculateNPV(cashFlows, task.rate / 100)
-          });
-        }
-      }
-    } else {
-      results = [
-        { type: "npv", value: calculateNPV(cashFlows, rate) },
-        { type: "irr", value: calculateIRR(cashFlows) },
-        { type: "payback", value: calculatePaybackPeriod(cashFlows) }
-      ];
-    }
+    const npv = calculateNPV(fullCashFlows, rate);
+    const irr = calculateIRR(fullCashFlows);
+    const payback = calculatePaybackPeriod(fullCashFlows);
 
     return {
       type: "finance_result",
-      data: { initial, cashFlows, rate, results }
+      data: {
+        initial,
+        cashFlows,
+        rate,
+        results: [
+          { type: "npv", value: npv },
+          { type: "irr", value: irr },
+          { type: "payback", value: payback }
+        ]
+      }
     };
   }
 
