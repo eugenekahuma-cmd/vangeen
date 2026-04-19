@@ -18,6 +18,12 @@ Your goal is precision, analytical depth, and financial correctness.
 `;
 
 async function callAI(message, history = []) {
+  // 🔴 HARD FAIL if key missing (no silent failure)
+  if (!process.env.GROQ_API_KEY) {
+    console.error("❌ GROQ_API_KEY is missing");
+    return "AI configuration error (missing API key).";
+  }
+
   try {
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
@@ -25,24 +31,44 @@ async function callAI(message, history = []) {
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...history,
+          ...(Array.isArray(history) ? history : []),
           { role: 'user', content: message }
         ],
         temperature: 0.2,
-        max_tokens: 2048
+        max_tokens: 1024
       },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 15000 // ⏱️ prevent hanging
       }
     );
+
+    if (!response.data?.choices?.[0]?.message?.content) {
+      console.error("⚠️ Unexpected AI response structure:", response.data);
+      return "AI response error.";
+    }
 
     return response.data.choices[0].message.content;
 
   } catch (error) {
-    console.error("AI Error:", error.response?.data || error.message);
+    // 🔥 SHOW REAL ERROR (critical for debugging)
+    console.error("❌ AI Error FULL:", {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+
+    if (error.response?.status === 401) {
+      return "AI authentication failed (invalid API key).";
+    }
+
+    if (error.response?.status === 429) {
+      return "AI rate limit reached. Try again later.";
+    }
+
     return "AI service temporarily unavailable.";
   }
 }
