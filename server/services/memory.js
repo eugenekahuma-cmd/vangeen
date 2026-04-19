@@ -1,9 +1,10 @@
 const Memory = require('../models/Memory');
 
-/**
- * GET USER MEMORY (safe + bounded)
- */
-async function getHistory(userId = 'anonymous', limit = 10) {
+// ---------------- IN-MEMORY CONTEXT ----------------
+const contextStore = {};
+
+// ---------------- GET HISTORY ----------------
+async function getHistory(userId = 'guest', limit = 10) {
   try {
     const doc = await Memory.findOne({ userId });
 
@@ -17,10 +18,8 @@ async function getHistory(userId = 'anonymous', limit = 10) {
   }
 }
 
-/**
- * SAVE MESSAGE (canonical write function)
- */
-async function saveMessage(userId = 'anonymous', role, content) {
+// ---------------- SAVE MESSAGE ----------------
+async function saveMessage(userId = 'guest', role, content) {
   try {
     if (!content) return false;
 
@@ -36,10 +35,9 @@ async function saveMessage(userId = 'anonymous', role, content) {
     doc.messages.push({
       role,
       content,
-      timestamp: new Date() // 🔥 add structure early
+      timestamp: new Date()
     });
 
-    // 🔥 HARD LIMIT (prevents DB bloat)
     if (doc.messages.length > 50) {
       doc.messages = doc.messages.slice(-50);
     }
@@ -53,16 +51,22 @@ async function saveMessage(userId = 'anonymous', role, content) {
   }
 }
 
-/**
- * ⚠️ TEMPORARY BACKWARD COMPATIBILITY
- * Prevents crashes from legacy calls
- */
-async function addToHistory(userId, role, content) {
-  return saveMessage(userId, role, content);
+// ---------------- CONTEXT ----------------
+function saveContext(userId, key, value) {
+  if (!contextStore[userId]) {
+    contextStore[userId] = {};
+  }
+
+  contextStore[userId][key] = value;
+}
+
+function getContext(userId) {
+  return contextStore[userId] || {};
 }
 
 module.exports = {
   getHistory,
   saveMessage,
-  addToHistory // remove later after full refactor
+  saveContext,
+  getContext
 };
