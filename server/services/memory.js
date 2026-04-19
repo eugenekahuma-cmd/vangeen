@@ -9,7 +9,6 @@ async function getHistory(userId = 'anonymous', limit = 10) {
 
     if (!doc || !doc.messages) return [];
 
-    // return only last N messages
     return doc.messages.slice(-limit);
 
   } catch (err) {
@@ -19,11 +18,11 @@ async function getHistory(userId = 'anonymous', limit = 10) {
 }
 
 /**
- * SAVE MESSAGE (safe + idempotent)
+ * SAVE MESSAGE (canonical write function)
  */
-async function saveMessage(userId, role, content) {
+async function saveMessage(userId = 'anonymous', role, content) {
   try {
-    if (!content) return;
+    if (!content) return false;
 
     let doc = await Memory.findOne({ userId });
 
@@ -36,10 +35,11 @@ async function saveMessage(userId, role, content) {
 
     doc.messages.push({
       role,
-      content
+      content,
+      timestamp: new Date() // 🔥 add structure early
     });
 
-    // 🔥 HARD LIMIT (prevents database bloat)
+    // 🔥 HARD LIMIT (prevents DB bloat)
     if (doc.messages.length > 50) {
       doc.messages = doc.messages.slice(-50);
     }
@@ -53,7 +53,16 @@ async function saveMessage(userId, role, content) {
   }
 }
 
+/**
+ * ⚠️ TEMPORARY BACKWARD COMPATIBILITY
+ * Prevents crashes from legacy calls
+ */
+async function addToHistory(userId, role, content) {
+  return saveMessage(userId, role, content);
+}
+
 module.exports = {
   getHistory,
-  saveMessage
+  saveMessage,
+  addToHistory // remove later after full refactor
 };
