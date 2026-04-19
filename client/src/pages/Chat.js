@@ -3,7 +3,6 @@ import axios from 'axios';
 import Sidebar from '../components/Sidebar';
 import './Chat.css';
 
-// 🔥 CENTRALIZE BACKEND URL
 const API_URL = "https://vangeen-backend.onrender.com/chat";
 
 function ChatPage() {
@@ -13,6 +12,8 @@ function ChatPage() {
 
   const handleSend = async () => {
     if (!input.trim()) return;
+
+    const token = localStorage.getItem("token"); // IMPORTANT
 
     const userMessage = { role: "user", content: input };
     const updatedMessages = [...messages, userMessage];
@@ -29,11 +30,12 @@ function ChatPage() {
           history: updatedMessages
         },
         {
-          timeout: 20000 // ⏱️ prevent hanging
+          timeout: 20000,
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
         }
       );
-
-      console.log("Backend response:", response.data);
 
       const reply =
         response.data?.reply ||
@@ -46,14 +48,14 @@ function ChatPage() {
       ]);
 
     } catch (error) {
-      console.error("Frontend Error:", error);
+      console.error(error);
 
-      let errorMessage = "Error: Could not reach backend.";
+      let errorMessage = "Backend error";
 
       if (error.response) {
         errorMessage = error.response.data?.error || errorMessage;
       } else if (error.request) {
-        errorMessage = "No response from server (timeout or network issue)";
+        errorMessage = "Server unreachable";
       }
 
       setMessages([
