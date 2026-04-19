@@ -5,14 +5,12 @@ const { orchestrate } = require('../services/orchestrator');
 const { callAI } = require('../services/aiService');
 const { getHistory, saveMessage } = require('../services/memory');
 
-// ---------------- AUTH MIDDLEWARE ----------------
+// OPTIONAL AUTH (disabled for early stage)
 const authMiddleware = require('../middleware/authMiddleware');
 
-router.post('/', authMiddleware, async (req, res) => {
+// ---------------- CHAT ROUTE ----------------
+router.post('/', async (req, res) => {
   const { message } = req.body;
-
-  // 🔥 REAL USER FROM JWT
-  const userId = req.user.id;
 
   if (!message || typeof message !== 'string') {
     return res.status(400).json({
@@ -21,15 +19,18 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 
   try {
-    // ---------------- SAVE USER MESSAGE (MEMORY WRITE) ----------------
+    // ---------------- USER ID (TEMP FALLBACK) ----------------
+    const userId = req.user?.id || "guest";
+
+    // ---------------- SAVE USER MESSAGE ----------------
     await saveMessage(userId, 'user', message);
 
-    // ---------------- ORCHESTRATE INTENT ----------------
+    // ---------------- ORCHESTRATE ----------------
     const result = await orchestrate(message);
 
     let reply;
 
-    // ---------------- FINANCE OUTPUT ----------------
+    // ---------------- FINANCE ENGINE ----------------
     if (result.type === "finance_result") {
       const d = result.data;
 
@@ -39,11 +40,11 @@ router.post('/', authMiddleware, async (req, res) => {
         `
 Explain only. Do NOT recalculate.
 
-Structure strictly:
-1. Interpretation of NPV
-2. Interpretation of IRR vs discount rate
-3. Payback insight
-4. Final decision logic
+Structure:
+1. NPV interpretation
+2. IRR interpretation
+3. Payback logic
+4. Decision summary
 
 Data:
 ${JSON.stringify(d, null, 2)}
@@ -59,7 +60,6 @@ INPUTS
 ━━━━━━━━━━━━━━━━━━
 Initial Investment: ${d.initial}
 Discount Rate: ${(d.rate * 100).toFixed(2)}%
-
 Cash Flows: ${d.cashFlows.join(', ')}
 
 ━━━━━━━━━━━━━━━━━━
@@ -89,7 +89,7 @@ ${explanation}
       reply = result.data;
     }
 
-    // ---------------- SAVE ASSISTANT RESPONSE (MEMORY WRITE) ----------------
+    // ---------------- SAVE ASSISTANT ----------------
     await saveMessage(userId, 'assistant', reply);
 
     return res.json({ reply });

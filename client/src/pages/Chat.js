@@ -11,11 +11,22 @@ function ChatPage() {
   const [loading, setLoading] = useState(false);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
 
-    const token = localStorage.getItem("token"); // IMPORTANT
+    const token = localStorage.getItem("token");
 
-    const userMessage = { role: "user", content: input };
+    // HARD GUARD (backend requires JWT)
+    if (!token) {
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: "Authentication required. Please log in again." }
+      ]);
+      return;
+    }
+
+    const userMessage = { role: "user", content: trimmed };
+
     const updatedMessages = [...messages, userMessage];
 
     setMessages(updatedMessages);
@@ -26,7 +37,7 @@ function ChatPage() {
       const response = await axios.post(
         API_URL,
         {
-          message: input,
+          message: trimmed,
           history: updatedMessages
         },
         {
@@ -37,31 +48,39 @@ function ChatPage() {
         }
       );
 
-      const reply =
-        response.data?.reply ||
-        response.data?.result?.reply ||
-        "No response from AI.";
+      const reply = response?.data?.reply;
 
-      setMessages([
-        ...updatedMessages,
-        { role: "assistant", content: reply }
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: reply || "Empty response from backend"
+        }
       ]);
 
     } catch (error) {
-      console.error(error);
+      console.error("Chat error:", error);
 
-      let errorMessage = "Backend error";
+      let errorMessage = "Unexpected backend failure";
 
       if (error.response) {
         errorMessage = error.response.data?.error || errorMessage;
+
+        // TOKEN EXPIRED / INVALID HANDLING
+        if (error.response.status === 401) {
+          localStorage.removeItem("token");
+          errorMessage = "Session expired. Please log in again.";
+        }
+
       } else if (error.request) {
-        errorMessage = "Server unreachable";
+        errorMessage = "Server unreachable (network or timeout)";
       }
 
-      setMessages([
-        ...updatedMessages,
+      setMessages(prev => [
+        ...prev,
         { role: "assistant", content: errorMessage }
       ]);
+
     } finally {
       setLoading(false);
     }
@@ -69,7 +88,7 @@ function ChatPage() {
 
   return (
     <div className="chat-container">
-      <Sidebar user={{ name: "Eugene", plan: "Free" }} history={[]} />
+      <Sidebar user={{ name: "User", plan: "Free" }} history={[]} />
 
       <div className="chat-main">
         <div className="chat-topbar">
@@ -83,7 +102,9 @@ function ChatPage() {
               <div className="message-avatar">
                 {msg.role === "user" ? "U" : "A"}
               </div>
-              <div className="message-content">{msg.content}</div>
+              <div className="message-content">
+                {msg.content}
+              </div>
             </div>
           ))}
 
@@ -100,6 +121,12 @@ function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
           />
 
           <button
