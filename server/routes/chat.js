@@ -23,34 +23,44 @@ router.post('/', async (req, res) => {
 
     let reply;
 
-    // ---------------- FINANCE ----------------
-    if (result.type === "finance_result") {
-      const d = result.data;
+  // ---------------- FINANCE ENGINE ----------------
+if (result.type === "finance_result") {
+  const d = result.data;
 
-      const history = await getHistory(userId);
+  const history = await getHistory(userId);
 
-      const explanation = await callAI(
-        `Explain financial results:\n${JSON.stringify(d)}`,
-        history
-      );
+  const explanation = await callAI(
+    `
+You are a financial analyst.
 
-      reply = `
-NPV: ${d.results[0].value.toFixed(2)}
-IRR: ${d.results[1].value ? (d.results[1].value * 100).toFixed(2) + '%' : 'N/A'}
-Payback: ${d.results[2].value ?? 'Not recovered'}
+STRICT RULES:
+- DO NOT recalculate anything
+- DO NOT modify ANY numbers
+- USE numbers exactly as given
+- If unsure, say: "Assuming provided results are correct"
+
+Explain clearly:
+1. NPV meaning
+2. IRR vs discount rate
+3. Payback insight
+4. Decision logic
+
+DATA (DO NOT CHANGE):
+${JSON.stringify(d, null, 2)}
+    `,
+    history
+  );
+
+  reply = `
+NPV: ${Number(d.results.find(r => r.type === "npv")?.value).toFixed(2)}
+IRR: ${d.results.find(r => r.type === "irr")?.value !== null
+      ? (d.results.find(r => r.type === "irr").value * 100).toFixed(2) + '%'
+      : 'N/A'}
+Payback: ${d.results.find(r => r.type === "payback")?.value ?? 'N/A'}
 
 ${explanation}
-      `;
-    }
-
-    else if (result.type === "error") {
-      reply = result.data;
-    }
-
-    else {
-      const history = await getHistory(userId);
-      reply = await callAI(message, history);
-    }
+  `;
+}
 
     // ✅ SAVE RESPONSE
     await saveMessage(userId, 'assistant', reply);

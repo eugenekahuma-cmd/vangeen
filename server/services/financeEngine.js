@@ -1,7 +1,9 @@
 function calculateNPV(cashFlows, rate) {
-  return cashFlows.reduce((npv, cf, t) => {
+  const value = cashFlows.reduce((npv, cf, t) => {
     return npv + cf / Math.pow(1 + rate, t);
   }, 0);
+
+  return Number(value.toFixed(2)); // 🔥 lock precision
 }
 
 function calculateIRR(cashFlows, guess = 0.1) {
@@ -24,7 +26,9 @@ function calculateIRR(cashFlows, guess = 0.1) {
 
     if (!isFinite(newRate)) return null;
 
-    if (Math.abs(newRate - rate) < 1e-7) return newRate;
+    if (Math.abs(newRate - rate) < 1e-7) {
+      return Number((newRate * 100).toFixed(2)) / 100; // 🔥 stable %
+    }
 
     rate = newRate;
   }
