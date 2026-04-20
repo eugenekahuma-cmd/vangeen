@@ -1,38 +1,19 @@
 const axios = require("axios");
 
-// ---------------- CLEAN MESSAGES ----------------
-function sanitizeMessages(messages = []) {
-  return messages.map(m => ({
-    role: m.role,
-    content: m.content
-  }));
-}
-
-// ---------------- SYSTEM PROMPT ----------------
-const systemPrompt = `
-You are Vangeen AI, a financial reasoning assistant.
-
-Rules:
-- Be precise
-- Never hallucinate numbers
-- Ask for missing data instead of guessing
-`;
-
-// ======================================================
-// 1. GROQ (PRIMARY)
-// ======================================================
-async function groqCall(message, history = []) {
+/**
+ * -------------------------------
+ * PROVIDER 1: GROQ
+ * -------------------------------
+ */
+async function callGroq(messages) {
   try {
-    const res = await axios.post(
+    const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...sanitizeMessages(history),
-          { role: "user", content: message }
-        ],
-        temperature: 0.2
+        messages,
+        temperature: 0.2,
+        max_tokens: 1024
       },
       {
         headers: {
@@ -42,74 +23,86 @@ async function groqCall(message, history = []) {
       }
     );
 
-    return res.data.choices[0].message.content;
+    return response.data.choices[0].message.content;
 
   } catch (err) {
     console.error("❌ Groq failed:", err.response?.data || err.message);
-    return null;
+    throw err;
   }
 }
 
-// ======================================================
-// 2. HUGGINGFACE GEMMA (FALLBACK)
-// ======================================================
-async function gemmaCall(message, history = []) {
+/**
+ * -------------------------------
+ * PROVIDER 2: HUGGINGFACE (GEMMA)
+ * -------------------------------
+ */
+async function callHuggingFace(messages) {
   try {
-    const prompt = `
-${systemPrompt}
+    const prompt = messages
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join("\n");
 
-Conversation:
-${sanitizeMessages(history).map(m => `${m.role}: ${m.content}`).join("\n")}
-
-user: ${message}
-assistant:
-`;
-
-    const res = await axios.post(
-      "https://api-inference.huggingface.co/models/google/gemma-4-e2b-it",
+    const response = await axios.post(
+      "https://api-inference.huggingface.co/models/google/gemma-4-E2B-it",
       {
-        inputs: prompt
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 512,
+          temperature: 0.3
+        }
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.HF_API_KEY}`,
-          "Content-Type": "application/json"
+          Authorization: `Bearer ${process.env.HF_API_KEY}`
         }
       }
     );
 
-    return res.data?.[0]?.generated_text || res.data?.generated_text || null;
+    return response.data?.[0]?.generated_text || "No response";
 
   } catch (err) {
-    console.error("❌ HF Gemma failed:", err.response?.data || err.message);
-    return null;
+    console.error("❌ HuggingFace failed:", err.response?.data || err.message);
+    throw err;
   }
 }
 
-// ======================================================
-// 3. RULE-BASED FALLBACK (NO AI DEPENDENCY)
-// ======================================================
-function fallbackResponse(message) {
-  return "AI temporarily unavailable. Please retry or refine your query.";
-}
-
-// ======================================================
-// 4. AI GATEWAY (CLEAN FAILOVER CHAIN)
-// ======================================================
+/**
+ * -------------------------------
+ * AI GATEWAY (MAIN ENTRY POINT)
+ * -------------------------------
+ */
 async function callAI(message, history = []) {
 
-  // 1. Groq
-  let response = await groqCall(message, history);
-  if (response) return response;
+  const messages = [
+    {
+      role: "system",
+      content: "You are Vangeen, a precise financial AI assistant."
+    },
+    ...history
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+    { role: "user", content: message }
+  ];
 
-  console.log("⚠️ Switching to HuggingFace...");
+  // ---------------- TRY GROQ FIRST ----------------
+  try {
+    return await callGroq(messages);
+  } catch (err1) {
 
-  // 2. HuggingFace Gemma
-  response = await gemmaCall(message, history);
-  if (response) return response;
+    // ---------------- FALLBACK: HUGGINGFACE ----------------
+    try {
+      return await callHuggingFace(messages);
+    } catch (err2) {
 
-  // 3. Hard fallback
-  return fallbackResponse(message);
+      // ---------------- FINAL SAFE FALLBACK ----------------
+      console.error("❌ All models failed");
+
+      return "AI service temporarily unavailable. Please try again later.";
+    }
+  }
 }
 
 module.exports = { callAI };
