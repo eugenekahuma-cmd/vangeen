@@ -1,25 +1,28 @@
 function calculateNPV(cashFlows, rate) {
-  return Number(
-    cashFlows.reduce((npv, cf, t) => {
-      return npv + cf / Math.pow(1 + rate, t);
-    }, 0).toFixed(2)
-  );
+  let npv = 0;
+
+  for (let t = 0; t < cashFlows.length; t++) {
+    npv += cashFlows[t] / Math.pow(1 + rate, t);
+  }
+
+  return Number(npv.toFixed(2));
 }
 
 function calculateIRR(cashFlows, guess = 0.1) {
   let rate = guess;
 
-  for (let i = 0; i < 1000; i++) {
+  for (let i = 0; i < 100; i++) {
     let npv = 0;
     let derivative = 0;
 
     for (let t = 0; t < cashFlows.length; t++) {
       const denom = Math.pow(1 + rate, t);
+
       npv += cashFlows[t] / denom;
       derivative -= (t * cashFlows[t]) / (denom * (1 + rate));
     }
 
-    if (Math.abs(derivative) < 1e-10) return null;
+    if (Math.abs(derivative) < 1e-12) return null;
 
     const newRate = rate - npv / derivative;
 
@@ -40,7 +43,10 @@ function calculatePaybackPeriod(cashFlows) {
 
   for (let i = 0; i < cashFlows.length; i++) {
     cumulative += cashFlows[i];
-    if (cumulative >= 0) return i;
+
+    if (cumulative >= 0) {
+      return i;
+    }
   }
 
   return null;

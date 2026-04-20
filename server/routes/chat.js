@@ -32,13 +32,17 @@ router.post('/', async (req, res) => {
         history
       );
 
+      const npv = d.results.find(r => r.type === "npv")?.value ?? null;
+      const irr = d.results.find(r => r.type === "irr")?.value;
+      const payback = d.results.find(r => r.type === "payback")?.value;
+
       reply = `
-NPV: ${d.results.find(r => r.type === "npv").value}
-IRR: ${d.results.find(r => r.type === "irr")?.value ?? 'N/A'}
-Payback: ${d.results.find(r => r.type === "payback") ?? 'N/A'}
+NPV: ${npv}
+IRR: ${irr !== null && irr !== undefined ? (irr * 100).toFixed(2) + '%' : 'N/A'}
+Payback: ${payback !== null && payback !== undefined ? payback + ' years' : 'N/A'}
 
 ${explanation}
-      `;
+      `.trim();
     }
 
     // ================= GENERAL =================
