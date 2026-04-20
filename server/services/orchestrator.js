@@ -1,5 +1,4 @@
 const { classifyIntent } = require('./classifier');
-
 const {
   calculateNPV,
   calculateIRR,
@@ -7,59 +6,26 @@ const {
 } = require('./financeEngine');
 
 const {
-  getHistory,
-  saveMessage
+  saveContext,
+  getContext
 } = require('./memory');
 
 function extractNumbers(message) {
   return message.match(/-?\d+(\.\d+)?/g)?.map(Number) || [];
 }
 
-function isRecalculation(message) {
-  const m = message.toLowerCase();
-  return (
-    m.includes("recalculate") ||
-    m.includes("change rate") ||
-    m.includes("new rate") ||
-    m.includes("%")
-  );
-}
-
 async function orchestrate(message, userId = "guest") {
   try {
-    const { intent } = await classifyIntent(message);
+    const lower = message.toLowerCase();
 
-    // ================= FOLLOW-UP (RUN FIRST) =================
-    if (isRecalculation(message)) {
-      const history = await getHistory(userId);
+    // ================= FOLLOW-UP FIRST =================
+    if (lower.includes("recalculate")) {
+      const context = getContext(userId).lastFinance;
 
-      const lastFinance = [...history]
-        .reverse()
-        .find(m => {
-          if (m.role !== "assistant") return false;
-
-          try {
-            const parsed = JSON.parse(m.content);
-            return parsed?.type === "finance_result";
-          } catch {
-            return false;
-          }
-        });
-
-      if (!lastFinance) {
+      if (!context) {
         return {
           type: "error",
           data: "No previous finance context found."
-        };
-      }
-
-      let context;
-      try {
-        context = JSON.parse(lastFinance.content).data;
-      } catch {
-        return {
-          type: "error",
-          data: "Corrupted finance context."
         };
       }
 
@@ -68,78 +34,72 @@ async function orchestrate(message, userId = "guest") {
 
       const fullCashFlows = [-context.initial, ...context.cashFlows];
 
-      const npv = calculateNPV(fullCashFlows, newRate);
-      const irr = calculateIRR(fullCashFlows);
-      const payback = calculatePaybackPeriod(fullCashFlows);
-
-      const response = {
+      return {
         type: "finance_result",
         data: {
           initial: context.initial,
           cashFlows: context.cashFlows,
           rate: newRate,
           results: [
-            { type: "npv", value: npv },
-            { type: "irr", value: irr },
-            { type: "payback", value: payback }
+            { type: "npv", value: calculateNPV(fullCashFlows, newRate) },
+            { type: "irr", value: calculateIRR(fullCashFlows) },
+            { type: "payback", value: calculatePaybackPeriod(fullCashFlows) }
           ]
         }
       };
-
-      await saveMessage(userId, "assistant", JSON.stringify(response));
-      return response;
     }
+
+    // ================= CLASSIFICATION =================
+    const { intent } = await classifyIntent(message);
 
     // ================= FINANCE =================
     if (intent === "finance") {
       const numbers = extractNumbers(message);
 
-      if (numbers.length < 3) {
-        return {
-          type: "error",
-          data: "Provide: initial, cash flows, rate"
+      // 🚨 CRITICAL FIX: Only compute if enough numbers
+      if (numbers.length >= 3) {
+        const initial = numbers[0];
+        const rate = numbers[numbers.length - 1] / 100;
+        const cashFlows = numbers.slice(1, -1);
+
+        const fullCashFlows = [-initial, ...cashFlows];
+
+        const result = {
+          type: "finance_result",
+          data: {
+            initial,
+            cashFlows,
+            rate,
+            results: [
+              { type: "npv", value: calculateNPV(fullCashFlows, rate) },
+              { type: "irr", value: calculateIRR(fullCashFlows) },
+              { type: "payback", value: calculatePaybackPeriod(fullCashFlows) }
+            ]
+          }
         };
-      }
 
-      const initial = numbers[0];
-      const rate = numbers[numbers.length - 1] / 100;
-      const cashFlows = numbers.slice(1, -1);
-
-      const fullCashFlows = [-initial, ...cashFlows];
-
-      const npv = calculateNPV(fullCashFlows, rate);
-      const irr = calculateIRR(fullCashFlows);
-      const payback = calculatePaybackPeriod(fullCashFlows);
-
-      const response = {
-        type: "finance_result",
-        data: {
+        // ✅ SAVE CONTEXT
+        saveContext(userId, "lastFinance", {
           initial,
           cashFlows,
-          rate,
-          results: [
-            { type: "npv", value: npv },
-            { type: "irr", value: irr },
-            { type: "payback", value: payback }
-          ]
-        }
-      };
+          rate
+        });
 
-      await saveMessage(userId, "assistant", JSON.stringify(response));
-      return response;
+        return result;
+      }
+
+      // 🚨 KEY FIX: FALLBACK TO EXPLANATION (NOT ERROR)
+      return {
+        type: "general",
+        data: message
+      };
     }
 
-    // ================= GENERAL =================
-    const history = await getHistory(userId);
-
-    const response = {
+    // ================= DEFAULT =================
+    return {
       type: "general",
       data: message
     };
-
-    await saveMessage(userId, "assistant", message);
-
-    return response;
 
   } catch (err) {
     console.error("Orchestrator Error:", err);

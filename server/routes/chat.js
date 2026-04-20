@@ -15,54 +15,42 @@ router.post('/', async (req, res) => {
   try {
     const userId = req.user?.id || "guest";
 
-    // ✅ SAVE USER INPUT
     await saveMessage(userId, 'user', message);
 
-    // ✅ ORCHESTRATE
     const result = await orchestrate(message, userId);
 
     let reply;
 
-  // ---------------- FINANCE ENGINE ----------------
-if (result.type === "finance_result") {
-  const d = result.data;
+    // ================= FINANCE =================
+    if (result.type === "finance_result") {
+      const d = result.data;
 
-  const history = await getHistory(userId);
+      const history = await getHistory(userId);
 
-  const explanation = await callAI(
-    `
-You are a financial analyst.
+      const explanation = await callAI(
+        `Explain ONLY. Do NOT recalculate.\n\nDATA:\n${JSON.stringify(d)}`,
+        history
+      );
 
-STRICT RULES:
-- DO NOT recalculate anything
-- DO NOT modify ANY numbers
-- USE numbers exactly as given
-- If unsure, say: "Assuming provided results are correct"
-
-Explain clearly:
-1. NPV meaning
-2. IRR vs discount rate
-3. Payback insight
-4. Decision logic
-
-DATA (DO NOT CHANGE):
-${JSON.stringify(d, null, 2)}
-    `,
-    history
-  );
-
-  reply = `
-NPV: ${Number(d.results.find(r => r.type === "npv")?.value).toFixed(2)}
-IRR: ${d.results.find(r => r.type === "irr")?.value !== null
-      ? (d.results.find(r => r.type === "irr").value * 100).toFixed(2) + '%'
-      : 'N/A'}
-Payback: ${d.results.find(r => r.type === "payback")?.value ?? 'N/A'}
+      reply = `
+NPV: ${d.results.find(r => r.type === "npv").value}
+IRR: ${d.results.find(r => r.type === "irr")?.value ?? 'N/A'}
+Payback: ${d.results.find(r => r.type === "payback") ?? 'N/A'}
 
 ${explanation}
-  `;
-}
+      `;
+    }
 
-    // ✅ SAVE RESPONSE
+    // ================= GENERAL =================
+    else if (result.type === "general") {
+      const history = await getHistory(userId);
+      reply = await callAI(message, history);
+    }
+
+    else {
+      reply = result.data;
+    }
+
     await saveMessage(userId, 'assistant', reply);
 
     return res.json({ reply });

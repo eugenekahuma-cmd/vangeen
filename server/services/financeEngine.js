@@ -1,9 +1,9 @@
 function calculateNPV(cashFlows, rate) {
-  const value = cashFlows.reduce((npv, cf, t) => {
-    return npv + cf / Math.pow(1 + rate, t);
-  }, 0);
-
-  return Number(value.toFixed(2)); // 🔥 lock precision
+  return Number(
+    cashFlows.reduce((npv, cf, t) => {
+      return npv + cf / Math.pow(1 + rate, t);
+    }, 0).toFixed(2)
+  );
 }
 
 function calculateIRR(cashFlows, guess = 0.1) {
@@ -15,7 +15,6 @@ function calculateIRR(cashFlows, guess = 0.1) {
 
     for (let t = 0; t < cashFlows.length; t++) {
       const denom = Math.pow(1 + rate, t);
-
       npv += cashFlows[t] / denom;
       derivative -= (t * cashFlows[t]) / (denom * (1 + rate));
     }
@@ -27,7 +26,7 @@ function calculateIRR(cashFlows, guess = 0.1) {
     if (!isFinite(newRate)) return null;
 
     if (Math.abs(newRate - rate) < 1e-7) {
-      return Number((newRate * 100).toFixed(2)) / 100; // 🔥 stable %
+      return Number(newRate.toFixed(4));
     }
 
     rate = newRate;
@@ -47,13 +46,8 @@ function calculatePaybackPeriod(cashFlows) {
   return null;
 }
 
-function calculateDCF(cashFlows, rate) {
-  return calculateNPV(cashFlows, rate);
-}
-
 module.exports = {
   calculateNPV,
   calculateIRR,
-  calculatePaybackPeriod,
-  calculateDCF
+  calculatePaybackPeriod
 };
