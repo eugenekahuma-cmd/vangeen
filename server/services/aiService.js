@@ -1,38 +1,43 @@
-const axios = require('axios');
+const axios = require("axios");
 
-const systemPrompt = `
-You are Vangeen, a senior financial analyst.
-
-Rules:
-- Be precise
-- No guessing
-- Structure answers clearly
-`;
-
-// ---------------- SANITIZE ----------------
-function cleanHistory(history = []) {
-  return history.map(m => ({
+// ---------------- CLEAN MESSAGES ----------------
+function sanitizeMessages(messages = []) {
+  return messages.map(m => ({
     role: m.role,
     content: m.content
   }));
 }
 
-// ---------------- PROVIDERS ----------------
+// ---------------- SYSTEM PROMPT ----------------
+const systemPrompt = `
+You are Vangeen AI, a financial reasoning assistant.
 
-async function callGroq(messages) {
+Rules:
+- Be precise
+- Never hallucinate numbers
+- Ask for missing data instead of guessing
+`;
+
+// ======================================================
+// 1. GROQ (PRIMARY)
+// ======================================================
+async function groqCall(message, history = []) {
   try {
     const res = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: 'llama-3.3-70b-versatile',
-        messages,
-        temperature: 0.2,
-        max_tokens: 1500
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...sanitizeMessages(history),
+          { role: "user", content: message }
+        ],
+        temperature: 0.2
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json"
         }
       }
     );
@@ -41,88 +46,70 @@ async function callGroq(messages) {
 
   } catch (err) {
     console.error("❌ Groq failed:", err.response?.data || err.message);
-    throw new Error("Groq failed");
+    return null;
   }
 }
 
-async function callOpenRouter(messages) {
+// ======================================================
+// 2. HUGGINGFACE GEMMA (FALLBACK)
+// ======================================================
+async function gemmaCall(message, history = []) {
   try {
+    const prompt = `
+${systemPrompt}
+
+Conversation:
+${sanitizeMessages(history).map(m => `${m.role}: ${m.content}`).join("\n")}
+
+user: ${message}
+assistant:
+`;
+
     const res = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
+      "https://api-inference.huggingface.co/models/google/gemma-4-e2b-it",
       {
-        model: 'openai/gpt-3.5-turbo', // safe default
-        messages
+        inputs: prompt
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${process.env.HF_API_KEY}`,
+          "Content-Type": "application/json"
         }
       }
     );
 
-    return res.data.choices[0].message.content;
+    return res.data?.[0]?.generated_text || res.data?.generated_text || null;
 
   } catch (err) {
-    console.error("❌ OpenRouter failed:", err.response?.data || err.message);
-    throw new Error("OpenRouter failed");
+    console.error("❌ HF Gemma failed:", err.response?.data || err.message);
+    return null;
   }
 }
 
-// 🆓 LAST RESORT (free / unstable)
-async function callFree(messages) {
-  try {
-    const res = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      {
-        model: 'meta-llama/llama-3-8b-instruct:free',
-        messages
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    return res.data.choices[0].message.content;
-
-  } catch (err) {
-    console.error("❌ Free model failed:", err.response?.data || err.message);
-    throw new Error("Free fallback failed");
-  }
+// ======================================================
+// 3. RULE-BASED FALLBACK (NO AI DEPENDENCY)
+// ======================================================
+function fallbackResponse(message) {
+  return "AI temporarily unavailable. Please retry or refine your query.";
 }
 
-// ---------------- GATEWAY ----------------
-
+// ======================================================
+// 4. AI GATEWAY (CLEAN FAILOVER CHAIN)
+// ======================================================
 async function callAI(message, history = []) {
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...cleanHistory(history),
-    { role: 'user', content: message }
-  ];
 
-  // 🔁 Retry logic (simple)
-  const providers = [
-    { name: "Groq", fn: callGroq },
-    { name: "OpenRouter", fn: callOpenRouter },
-    { name: "FreeFallback", fn: callFree }
-  ];
+  // 1. Groq
+  let response = await groqCall(message, history);
+  if (response) return response;
 
-  for (const provider of providers) {
-    try {
-      console.log(`➡️ Trying ${provider.name}...`);
-      const result = await provider.fn(messages);
-      console.log(`✅ ${provider.name} success`);
-      return result;
+  console.log("⚠️ Switching to HuggingFace...");
 
-    } catch (err) {
-      console.log(`⚠️ ${provider.name} failed, trying next...`);
-    }
-  }
+  // 2. HuggingFace Gemma
+  response = await gemmaCall(message, history);
+  if (response) return response;
 
-  return "AI service temporarily unavailable.";
+  // 3. Hard fallback
+  return fallbackResponse(message);
 }
 
 module.exports = { callAI };
