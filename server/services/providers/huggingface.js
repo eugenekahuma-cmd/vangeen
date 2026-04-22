@@ -1,78 +1,77 @@
 const axios = require("axios");
 
-const MODEL = "google/gemma-7b-it";
+/**
+ * SAFE HF PROVIDER
+ * - retries
+ * - fallback model
+ * - correct inference API format
+ */
 
-async function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+const MODELS = [
+  "google/gemma-7b-it",
+  "mistralai/Mistral-7B-Instruct-v0.2",
+  "HuggingFaceH4/zephyr-7b-beta"
+];
+
+function buildPrompt(message, history) {
+  const formatted = history
+    .filter(m => m.role && m.content)
+    .map(m => `${m.role}: ${m.content}`)
+    .join("\n");
+
+  return `${formatted}\nuser: ${message}\nassistant:`;
 }
 
-async function callHF(message, retries = 2) {
-  const prompt = `
-You are a precise financial and economic assistant.
+async function queryModel(model, prompt) {
+  const res = await axios.post(
+    `https://api-inference.huggingface.co/models/${model}`,
+    {
+      inputs: prompt,
+      parameters: {
+        max_new_tokens: 400,
+        temperature: 0.3,
+        return_full_text: false
+      }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.HF_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      timeout: 20000
+    }
+  );
 
-User:
-${message}
-`;
+  const data = res.data;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  if (Array.isArray(data)) {
+    return data[0]?.generated_text || null;
+  }
+
+  return data?.generated_text || null;
+}
+
+async function callHF(message, history = []) {
+  const prompt = buildPrompt(message, history);
+
+  let lastError;
+
+  for (const model of MODELS) {
     try {
-      const res = await axios.post(
-        `https://api-inference.huggingface.co/models/${MODEL}`,
-        {
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 250,
-            temperature: 0.3,
-            return_full_text: false
-          }
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.HF_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          timeout: 20000
-        }
-      );
+      const result = await queryModel(model, prompt);
 
-      const data = res.data;
-
-      // ---------------- SAFE PARSING ----------------
-      let output =
-        data?.generated_text ||
-        data?.[0]?.generated_text ||
-        data?.error ||
-        null;
-
-      // ---------------- MODEL LOADING HANDLING ----------------
-      if (typeof output === "object" && output?.error) {
-        throw new Error(output.error);
+      if (result && result.trim().length > 0) {
+        console.log(`✅ HF success via ${model}`);
+        return result;
       }
-
-      if (!output || typeof output !== "string") {
-        throw new Error("Invalid HF response format");
-      }
-
-      return output;
-
     } catch (err) {
-      console.warn(`HF attempt ${attempt + 1} failed:`);
-
-      // If model is loading → wait and retry
-      if (err?.response?.data?.error?.includes("loading")) {
-        await sleep(3000);
-        continue;
-      }
-
-      if (attempt === retries) {
-        throw err;
-      }
-
-      await sleep(1500);
+      lastError = err;
+      console.warn(`❌ HF model failed: ${model}`);
     }
   }
 
-  throw new Error("HF failed after retries");
+  console.error("❌ HF all models failed:", lastError?.message);
+  throw new Error("HuggingFace provider failed");
 }
 
 module.exports = { callHF };
