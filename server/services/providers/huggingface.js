@@ -1,16 +1,18 @@
 const axios = require("axios");
 
-async function callHF(message, history) {
-  const prompt =
-    history.map(m => `${m.role}: ${m.content}`).join("\n") +
-    `\nuser: ${message}\nassistant:`;
+async function callHF(message) {
+  const prompt = `
+Answer clearly and concisely:
+
+${message}
+`;
 
   const res = await axios.post(
-    "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+    "https://api-inference.huggingface.co/models/google/flan-t5-large",
     {
       inputs: prompt,
       parameters: {
-        max_new_tokens: 300,
+        max_new_tokens: 200,
         temperature: 0.3
       }
     },
@@ -18,7 +20,7 @@ async function callHF(message, history) {
       headers: {
         Authorization: `Bearer ${process.env.HF_API_KEY}`
       },
-      timeout: 8000 // 🔥 timeout guard
+      timeout: 8000
     }
   );
 

@@ -2,7 +2,12 @@ const { callGroq } = require("./providers/groq");
 const { callHF } = require("./providers/huggingface");
 const { callOpenRouter } = require("./providers/openrouter");
 
-// 🔥 simple in-memory circuit breaker
+// 🔥 CONTROL SWITCHES
+const DISABLE_GROQ = true;
+const DISABLE_HF = false;
+const DISABLE_OPENROUTER = true;
+
+// 🔥 circuit state
 const providerState = {
   groq: { disabled: false },
   hf: { disabled: false },
@@ -30,10 +35,8 @@ async function tryProvider(name, fn) {
     return res;
   } catch (err) {
     const type = classifyError(err);
-
     console.warn(`❌ ${name} failed → ${type}`);
 
-    // 🔥 disable permanently for bad config/auth
     if (type === "AUTH" || type === "CONFIG") {
       providerState[name].disabled = true;
     }
@@ -43,23 +46,30 @@ async function tryProvider(name, fn) {
 }
 
 async function routeProviders({ message, history }) {
-  // 1. GROQ
-  let res = await tryProvider("groq", () =>
-    callGroq(message, history)
-  );
-  if (res) return res;
 
-  // 2. HF
-  res = await tryProvider("hf", () =>
-    callHF(message, history)
-  );
-  if (res) return res;
+  // 🔴 GROQ (DISABLED)
+  if (!DISABLE_GROQ) {
+    let res = await tryProvider("groq", () =>
+      callGroq(message, history)
+    );
+    if (res) return res;
+  }
 
-  // 3. OPENROUTER
-  res = await tryProvider("openrouter", () =>
-    callOpenRouter(message, history)
-  );
-  if (res) return res;
+  // 🟢 HUGGINGFACE (ACTIVE)
+  if (!DISABLE_HF) {
+    let res = await tryProvider("hf", () =>
+      callHF(message, history)
+    );
+    if (res) return res;
+  }
+
+  // 🔴 OPENROUTER (DISABLED)
+  if (!DISABLE_OPENROUTER) {
+    let res = await tryProvider("openrouter", () =>
+      callOpenRouter(message, history)
+    );
+    if (res) return res;
+  }
 
   console.error("🚨 All providers failed");
   return null;
