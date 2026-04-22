@@ -38,27 +38,25 @@ async function callGroq(messages) {
  */
 async function callHuggingFace(messages) {
   try {
-    const prompt = messages
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-      .join("\n");
-
     const response = await axios.post(
-      "https://api-inference.huggingface.co/models/google/gemma-4-E2B-it",
+      "https://router.huggingface.co/hf-inference/models/google/gemma-3-4b-it/v1/chat/completions",
       {
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 512,
-          temperature: 0.3
-        }
+        model: "google/gemma-3-4b-it",
+        messages,
+        max_tokens: 512,
+        temperature: 0.3,
+        stream: false
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.HF_API_KEY}`
-        }
+          Authorization: `Bearer ${process.env.HF_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 30000
       }
     );
 
-    return response.data?.[0]?.generated_text || "No response";
+    return response.data?.choices?.[0]?.message?.content || "No response";
 
   } catch (err) {
     console.error("❌ HuggingFace failed:", err.response?.data || err.message);
