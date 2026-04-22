@@ -2,43 +2,51 @@ const { callGroq } = require("./providers/groq");
 const { callHF } = require("./providers/huggingface");
 const { callOpenRouter } = require("./providers/openrouter");
 
-async function safeCall(fn, label) {
-  const start = Date.now();
+const {
+  recordSuccess,
+  recordFailure,
+  isAvailable,
+  getScore
+} = require("./providerState");
 
-  try {
-    const result = await fn();
-    const latency = Date.now() - start;
+const { retry, withTimeout } = require("./utils");
 
-    return {
-      success: true,
-      data: result,
-      latency,
-      provider: label
-    };
-
-  } catch (err) {
-    console.warn(`${label} failed`);
-    return { success: false };
-  }
-}
+const PROVIDERS = [
+  { name: "groq", fn: callGroq },
+  { name: "hf", fn: callHF },
+  { name: "openrouter", fn: callOpenRouter }
+];
 
 async function routeProviders({ message, history }) {
 
-  // TRY ALL IN PARALLEL (THIS IS UPGRADE)
-  const results = await Promise.allSettled([
-    safeCall(() => callGroq(message, history), "groq"),
-    safeCall(() => callHF(message, history), "hf"),
-    safeCall(() => callOpenRouter(message, history), "openrouter")
-  ]);
+  // 🔥 SORT BY SCORE (BEST FIRST)
+  const ranked = PROVIDERS
+    .filter(p => isAvailable(p.name))
+    .sort((a, b) => getScore(a.name) - getScore(b.name));
 
-  // PICK FIRST SUCCESSFUL (FASTEST EFFECTIVE RESPONSE)
-  const success = results
-    .map(r => r.value)
-    .filter(r => r && r.success)
-    .sort((a, b) => a.latency - b.latency)[0];
+  for (const provider of ranked) {
+    const start = Date.now();
 
-  if (success) return success.data;
+    try {
+      const result = await retry(() =>
+        withTimeout(provider.fn(message, history), 8000)
+      );
 
+      const latency = Date.now() - start;
+
+      recordSuccess(provider.name, latency);
+
+      console.log(`✅ ${provider.name} success (${latency}ms)`);
+
+      return result;
+
+    } catch (err) {
+      recordFailure(provider.name);
+      console.warn(`❌ ${provider.name} failed → ${err.message}`);
+    }
+  }
+
+  console.error("🚨 All providers failed");
   return null;
 }
 

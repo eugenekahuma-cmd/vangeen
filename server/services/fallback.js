@@ -1,5 +1,5 @@
 function safeFallback() {
-  return "AI temporarily unavailable. Please retry.";
+  return "AI is temporarily unavailable. Please retry.";
 }
 
 module.exports = { safeFallback };
