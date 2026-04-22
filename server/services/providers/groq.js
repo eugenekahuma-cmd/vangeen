@@ -1,12 +1,8 @@
 const axios = require("axios");
 
 async function callGroq(message, history) {
-
   const messages = [
-    ...history.map(m => ({
-      role: m.role,
-      content: m.content
-    })),
+    ...history,
     { role: "user", content: message }
   ];
 
@@ -21,7 +17,8 @@ async function callGroq(message, history) {
       headers: {
         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         "Content-Type": "application/json"
-      }
+      },
+      timeout: 8000 // 🔥 critical
     }
   );
 

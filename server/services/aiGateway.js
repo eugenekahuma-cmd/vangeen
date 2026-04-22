@@ -21,11 +21,11 @@ async function callAI(message, history = []) {
 
     if (response) return response;
 
-    return safeFallback();
+    return safeFallback(message);
 
   } catch (err) {
     console.error("AI Gateway Fatal Error:", err);
-    return safeFallback();
+    return safeFallback(message);
   }
 }
 

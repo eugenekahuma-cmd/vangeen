@@ -2,49 +2,64 @@ const { callGroq } = require("./providers/groq");
 const { callHF } = require("./providers/huggingface");
 const { callOpenRouter } = require("./providers/openrouter");
 
-const {
-  recordSuccess,
-  recordFailure,
-  isAvailable,
-  getScore
-} = require("./providerState");
+// 🔥 simple in-memory circuit breaker
+const providerState = {
+  groq: { disabled: false },
+  hf: { disabled: false },
+  openrouter: { disabled: false }
+};
 
-const { retry, withTimeout } = require("./utils");
+function classifyError(err) {
+  const status = err.response?.status;
 
-const PROVIDERS = [
-  { name: "groq", fn: callGroq },
-  { name: "hf", fn: callHF },
-  { name: "openrouter", fn: callOpenRouter }
-];
+  if (status === 401 || status === 403) return "AUTH";
+  if (status === 404) return "CONFIG";
+  if (status >= 500) return "SERVER";
+  return "NETWORK";
+}
+
+async function tryProvider(name, fn) {
+  if (providerState[name].disabled) {
+    console.warn(`⛔ ${name} skipped (disabled)`);
+    return null;
+  }
+
+  try {
+    const res = await fn();
+    console.log(`✅ ${name} success`);
+    return res;
+  } catch (err) {
+    const type = classifyError(err);
+
+    console.warn(`❌ ${name} failed → ${type}`);
+
+    // 🔥 disable permanently for bad config/auth
+    if (type === "AUTH" || type === "CONFIG") {
+      providerState[name].disabled = true;
+    }
+
+    return null;
+  }
+}
 
 async function routeProviders({ message, history }) {
+  // 1. GROQ
+  let res = await tryProvider("groq", () =>
+    callGroq(message, history)
+  );
+  if (res) return res;
 
-  // 🔥 SORT BY SCORE (BEST FIRST)
-  const ranked = PROVIDERS
-    .filter(p => isAvailable(p.name))
-    .sort((a, b) => getScore(a.name) - getScore(b.name));
+  // 2. HF
+  res = await tryProvider("hf", () =>
+    callHF(message, history)
+  );
+  if (res) return res;
 
-  for (const provider of ranked) {
-    const start = Date.now();
-
-    try {
-      const result = await retry(() =>
-        withTimeout(provider.fn(message, history), 8000)
-      );
-
-      const latency = Date.now() - start;
-
-      recordSuccess(provider.name, latency);
-
-      console.log(`✅ ${provider.name} success (${latency}ms)`);
-
-      return result;
-
-    } catch (err) {
-      recordFailure(provider.name);
-      console.warn(`❌ ${provider.name} failed → ${err.message}`);
-    }
-  }
+  // 3. OPENROUTER
+  res = await tryProvider("openrouter", () =>
+    callOpenRouter(message, history)
+  );
+  if (res) return res;
 
   console.error("🚨 All providers failed");
   return null;
