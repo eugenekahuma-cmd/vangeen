@@ -1,10 +1,6 @@
 const axios = require("axios");
 
-/**
- * VANGEEN - HuggingFace Provider
- * Uses the latest free Inference API (serverless)
- * with correct message format and fallback chain
- */
+const HF_API_KEY = process.env.HF_API_KEY;
 
 const MODELS = [
   "mistralai/Mistral-7B-Instruct-v0.3",
@@ -12,71 +8,117 @@ const MODELS = [
   "microsoft/Phi-3-mini-4k-instruct"
 ];
 
-const SYSTEM_PROMPT = `You are Vangeen, a senior financial analyst, accountant, auditor, and economist.
-RULES:
-1. Never invent or change input data
-2. Always use exact numbers provided
-3. State assumptions clearly if data is missing
-4. Show all reasoning step-by-step
-5. Structure: Inputs → Methodology → Results → Interpretation
-6. Say "Insufficient data" if unsure — never guess
-Your goal is precision, analytical depth, and financial correctness.`;
+// ---------------- MAIN ----------------
+async function callHF(message, history = []) {
 
-async function queryModel(model, message, history = []) {
-  // Build messages array in OpenAI-compatible format
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    ...history.map(m => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content
-    })),
-    { role: "user", content: message }
-  ];
-
-  const res = await axios.post(
-    `https://router.huggingface.co/hf-inference/models/${model}/v1/chat/completions`,
-    {
-      model,
-      messages,
-      max_tokens: 1024,
-      temperature: 0.2,
-      stream: false
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.HF_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      timeout: 30000
-    }
-  );
-
-  const content = res.data?.choices?.[0]?.message?.content;
-
-  if (!content || content.trim().length === 0) {
-    throw new Error(`Empty response from ${model}`);
+  if (!HF_API_KEY) {
+    console.warn("❌ HF missing API key");
+    return null;
   }
 
-  return content.trim();
-}
-
-async function callHF(message, history = []) {
-  let lastError;
+  const prompt = buildPrompt(message, history);
 
   for (const model of MODELS) {
     try {
       console.log(`🔄 Trying HF model: ${model}`);
-      const result = await queryModel(model, message, history);
-      console.log(`✅ HF success via: ${model}`);
-      return result;
+
+      const payload = buildPayload(model, prompt);
+
+      const res = await axios.post(
+        `https://api-inference.huggingface.co/models/${model}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${HF_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          timeout: 30000
+        }
+      );
+
+      const output = extract(res.data);
+
+      if (output) {
+        console.log(`✅ HF success: ${model}`);
+        return output;
+      }
+
     } catch (err) {
-      lastError = err;
-      console.warn(`❌ HF model failed (${model}): ${err.message}`);
+      console.warn(
+        `❌ HF model failed (${model}):`,
+        err.response?.status,
+        err.response?.data || err.message
+      );
     }
   }
 
-  console.error("❌ All HF models failed:", lastError?.message);
-  throw new Error("HuggingFace provider unavailable");
+  console.error("❌ All HF models failed");
+  return null;
+}
+
+// ---------------- ADAPTIVE PAYLOAD BUILDER ----------------
+function buildPayload(model, prompt) {
+
+  // Phi models are strict text-only
+  if (model.includes("Phi")) {
+    return { inputs: prompt };
+  }
+
+  // Mistral + Zephyr support generation config BUT picky
+  return {
+    inputs: prompt,
+    parameters: {
+      max_new_tokens: 512,
+      temperature: 0.3,
+      top_p: 0.9,
+      do_sample: true,
+      return_full_text: false
+    }
+  };
+}
+
+// ---------------- PROMPT BUILDER ----------------
+function buildPrompt(message, history) {
+  const safeHistory = history.slice(-6);
+
+  const context = safeHistory
+    .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n");
+
+  return `
+You are a financial AI assistant.
+
+Conversation:
+${context}
+
+USER: ${message}
+ASSISTANT:
+`.trim();
+}
+
+// ---------------- RESPONSE PARSER ----------------
+function extract(data) {
+
+  if (!data) return null;
+
+  // array format
+  if (Array.isArray(data)) {
+    return data[0]?.generated_text || null;
+  }
+
+  // direct string response (some HF models)
+  if (typeof data === "string") {
+    return data;
+  }
+
+  // object format
+  if (typeof data === "object") {
+    return data.generated_text
+      || data?.[0]?.generated_text
+      || null;
+  }
+
+  return null;
 }
 
 module.exports = { callHF };
